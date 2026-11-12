@@ -1,6 +1,6 @@
 // Fisher Family Adventures service worker: offline shell, scoped to this site only.
 // Bump VERSION on every deploy that changes cached files.
-const VERSION = 'ffa-v0.1.1';
+const VERSION = 'ffa-v0.2';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icons/ff-192.png', './icons/ff-512.png', './icons/ff-maskable-512.png'];
 self.addEventListener('install', e => {
   e.waitUntil((async () => { const c = await caches.open(VERSION); await c.addAll(SHELL); await self.skipWaiting(); })());

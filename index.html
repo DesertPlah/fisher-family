@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="theme-color" content="#0b3550">
 <meta name="mobile-web-app-capable" content="yes">
-<title>Fisher Family Adventures v0.1.1</title>
+<title>Fisher Family Adventures v0.2</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/ff-192.png">
 <link rel="apple-touch-icon" href="icons/ff-192.png">
@@ -28,8 +28,16 @@ html,body{margin:0;height:100%;height:var(--appH,100dvh);overflow:hidden;backgro
 .sc .hp{width:34px;height:6px;background:#3a1f1f;border-radius:3px;overflow:hidden;flex:none}
 .sc .hp i{display:block;height:100%;background:#5fd35f}
 #status{font-size:12px;min-height:30px;background:#0e2233;border-radius:5px;padding:3px 6px;color:#ffe9a8}
-#btns{display:grid;grid-template-columns:repeat(4,1fr);gap:3px}
-button{font:inherit;font-size:13px;font-weight:600;border:0;border-radius:6px;padding:0 4px;height:34px;background:#2d5b84;color:#fff;cursor:pointer}
+#btns{display:grid;grid-template-columns:repeat(5,1fr);gap:3px}
+#supply{font-size:11px;color:#9fe3ff;padding:0 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.roles{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-top:6px}
+.role{border:2px solid #b08a4a;border-radius:8px;padding:5px 7px;background:#fff8e6;cursor:pointer;font-size:12px}
+.role.on{border-color:#2d5b84;background:#dcecf8;box-shadow:0 0 0 2px #2d5b84}
+.role b{font-size:13px}
+.short{display:none;font-size:12px;margin:2px 0}
+@media (max-height:470px){.box .story,.box .locked{display:none}.short{display:block}.box h1{font-size:18px}.role{padding:3px 6px;font-size:11.5px}.box .row{margin-top:4px}}
+.upg{display:flex;align-items:center;gap:8px;margin:4px 0}.upg div{flex:1;font-size:13px}
+button{font:inherit;font-size:13px;font-weight:600;border:0;border-radius:6px;padding:0 2px;height:34px;background:#2d5b84;color:#fff;cursor:pointer}
 button:disabled{background:#26384a;color:#6d7f90;cursor:default}
 button.hot{background:#d9922e}
 #hand{display:grid;grid-template-columns:repeat(3,1fr);gap:3px}
@@ -68,9 +76,10 @@ input{font:inherit;padding:5px 7px;border-radius:5px;border:1px solid #888;width
   </div>
   <div id="panel">
     <div id="score"></div>
+    <div id="supply"></div>
     <div id="status"></div>
     <div id="btns">
-      <button id="bLoad" title="L">Load</button><button id="bUnload" title="U">Unload</button><button id="bTurn" title="T">Turn</button><button id="bEnd" title="E">End</button>
+      <button id="bLoad" title="L">Load</button><button id="bUnload" title="U">Unload</button><button id="bTurn" title="T">Turn</button><button id="bShop" title="S">Shop</button><button id="bEnd" title="E">End</button>
     </div>
     <div id="hand"></div>
     <div id="log"></div>
@@ -79,7 +88,7 @@ input{font:inherit;padding:5px 7px;border-radius:5px;border:1px solid #888;width
 <div id="modal" class="modal"><div class="box" id="mbox"></div></div>
 <script>
 'use strict';
-const VERSION = '0.1.1';
+const VERSION = '0.2';
 const Q = new URLSearchParams(location.search);
 // ---------- RNG ----------
 function mulberry(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
@@ -104,10 +113,30 @@ const STORY = {
   id:'family-gold-grab', name:'Family Gold Grab', teams:'Every Fisher for themself',
   homes:[[1,7],[1,1],[13,1],[13,7]],
   isles:[[[4,1]],[[4,7]],[[10,1]],[[10,7]],[[7,0],[7,1]],[[7,7],[7,8]],[[5,4]],[[9,4]]],
-  chests:[1,1,2,2,2,3,3,3,4,4,5,5]
+  chests:[1,1,1,2,2,2,2,3,3,3,3,4,4,4,5,5],      // 16 on the islands at the start
+  supply:[1,1,2,2,2,3,3,3,4,4,5,5],              // 12 more wash up during the game
+  washEvery:2, washFirst:3, washCount:2
 };
+const BASE_HP = 15, BASE_CAP = 5, BASE_SAIL = 2, ROUND_CAP = 40;
 const COLORS = ['#3b82f6','#ef4444','#22c55e','#a855f7'];
 const LETTERS = ['A','B','C','D'];
+
+// ---------- Fisher roles (placeholders: role names only, no lore) ----------
+const ROLES = {
+  gunner:{name:'Gunner', motive:'power', icon:'💥', text:'+1 damage on every cannon die. Sinking a ship plunders all its chests that fit, not half.'},
+  trader:{name:'Trader', motive:'treasure', icon:'💰', text:'+1 bonus gold every time you unload at home. Loading Mixup can\'t take your chests and Thieving Monkeys can\'t take your cards. Hold is 4 chests, not 5.'},
+  navigator:{name:'Navigator', motive:'adventure', icon:'🧭', text:'Sails 3 hexes instead of 2. Typhoons don\'t move you.'},
+  shipwright:{name:'Shipwright', motive:'family', icon:'🔨', text:'+5 max HP. Repairs 2 HP at the start of each turn next to any island, home included.'},
+};
+const ROLE_IDS = ['gunner','trader','navigator','shipwright'];
+// ---------- Upgrades (bought with banked gold while docked at home) ----------
+const UPGRADES = {
+  guns:{name:'Heavy shot', text:'+1 damage on every cannon die', cost:4},
+  hold:{name:'Bigger hold', text:'+2 cargo', cost:3},
+  hull:{name:'Reinforced hull', text:'+3 max HP (repairs 3 now)', cost:3},
+  sail:{name:'Extra sail', text:'+1 hex per sail', cost:4},
+};
+const UPG_IDS = ['guns','hold','hull','sail'];
 
 // ---------- Cards ----------
 const CARDS = {
@@ -119,9 +148,9 @@ const CARDS = {
   gunner:{name:'Gunner',type:'crew',text:'Your next shot this turn reaches 1 hex farther (3 hexes).'},
   shipwright:{name:'Shipwright',type:'crew',text:'Heal 3 HP now.'},
   deckmaster:{name:'Deck Master',type:'crew',text:'Load or unload right now as a free action.'},
-  typhoon:{name:'Typhoon',type:'event',text:'End of another Fisher\'s turn. Roll a die (1=N 2=NE 3=SE 4=S 5=SW 6=NW): every ship is blown 2 hexes that way; an island in the way costs 1 HP.'},
-  monkeys:{name:'Thieving Monkeys',type:'event',text:'End of another Fisher\'s turn. You draw first, then everyone takes a random card from the Fisher to their left.'},
-  mixup:{name:'Loading Mixup',type:'event',text:'End of another Fisher\'s turn. Move 1 chest from any ship to any other ship with room.'},
+  typhoon:{name:'Typhoon',type:'event',text:'End of another Fisher\'s turn. Roll a die (1=N 2=NE 3=SE 4=S 5=SW 6=NW): every ship is blown 2 hexes that way; an island in the way costs 1 HP. The Navigator holds steady.'},
+  monkeys:{name:'Thieving Monkeys',type:'event',text:'End of another Fisher\'s turn. You draw first, then everyone takes a random card from the Fisher to their left. The Trader sits out and the circle closes around them.'},
+  mixup:{name:'Loading Mixup',type:'event',text:'End of another Fisher\'s turn. Move 1 chest from one ship to another ship with room. Not from a ship docked at its own home, and never from the Trader.'},
 };
 const TYPE_LABEL = {shot:'Shot',crew:'Crew',event:'Event'};
 function makeDeck(){const d=[];for(const id in CARDS){const n=CARDS[id].type==='event'?2:3;for(let i=0;i<n;i++)d.push(id);}return shuffle(d);}
@@ -135,28 +164,35 @@ function newGame(opts){
   const seed = opts.seed!=null ? opts.seed : (+Q.get('seed') || ((Date.now()^ (Math.random()*1e9))>>>0));
   rnd = mulberry(seed);
   const names = opts.names || [];
+  // roles: opts.roles = full seat->role list, or opts.role = the human's pick (others random)
+  let roles = opts.roles ? opts.roles.slice() : null;
+  if(!roles){ const pick = opts.role && ROLES[opts.role] ? opts.role : null; const rest=shuffle(ROLE_IDS.filter(r=>r!==pick)); roles = pick ? [pick].concat(rest) : shuffle(ROLE_IDS.slice()); }
   S = {seed, version:VERSION, players:[], islands:[], isleAt:{}, deck:makeDeck(), discard:[], cur:0, round:1, tick:0,
-       actions:2, loaded:false, armed:{navigator:false,gunner:false,shot:null}, phase:'turn', skip:false, evQueue:[], evFor:-1,
-       log:[], over:false, winners:[], lost:[], stats:{shots:0,sinks:0,respawns:0,cards:{},typhoons:0}};
+       actions:2, loaded:false, fired:false, bought:false, armed:{navigator:false,gunner:false,shot:null}, phase:'turn', skip:false, evQueue:[], evFor:-1,
+       supply:shuffle(STORY.supply.slice()), log:[], over:false, winners:[], lost:[],
+       stats:{shots:0,sinks:0,respawns:0,cards:{},typhoons:0,sinkTurns:[],sinkShots:[],upgrades:{},washed:0,spent:[0,0,0,0]}};
   STORY.homes.forEach((h,i)=>addIsland([h], i));
   STORY.isles.forEach(hs=>addIsland(hs,-1));
-  // chests: one per treasure island, rest random
   const ch = shuffle(STORY.chests.slice()); const tis = S.islands.filter(i=>i.home<0);
   tis.forEach(i=>i.chests.push(ch.pop()));
   while(ch.length) tis[Math.floor(rnd()*tis.length)].chests.push(ch.pop());
   for(let p=0;p<NP;p++){
-    const ai = opts.allAI ? true : p!==0;
-    const P = {id:p, name:names[p]||('Fisher '+LETTERS[p]), color:COLORS[p], ai, hand:[], home:p, homeChests:[], played:0,
-      ship:{c:0,r:0,f:0,hp:10,maxHp:10,cannons:2,cap:5,cargo:[],sunk:false,sunkTick:0,chained:false,graped:false,chainNow:false,grapeNow:false}};
-    S.players.push(P);
+    const ai = opts.allAI ? true : p!==0; const role=roles[p];
+    const P = {id:p, role, name:names[p]||(ROLES[role].name+' Fisher'), color:COLORS[p], ai, hand:[], home:p, gold:0, earned:0, spent:0, chestsHome:0, played:0,
+      upg:{guns:0,hold:0,hull:0,sail:0},
+      ship:{c:0,r:0,f:0,hp:0,maxHp:0,cannons:2,cap:0,cargo:[],sunk:false,sunkTick:0,chained:false,graped:false,chainNow:false,grapeNow:false,hitTicks:[],shotsTaken:0}};
+    S.players.push(P); recalc(P); P.ship.hp=P.ship.maxHp;
     placeAtHome(P);
     for(let k=0;k<3;k++) draw(P);
   }
-  log('Story card: '+STORY.name+' — '+STORY.teams+'. 12 face-down chests are on the 8 treasure islands.');
+  log('Story card: '+STORY.name+' — '+STORY.teams+'. '+STORY.chests.length+' face-down chests are on the 8 treasure islands; '+S.supply.length+' more will wash up.');
   startTurn();
   return S;
 }
-function addIsland(hexes, home){const id=S.islands.length;S.islands.push({id,hexes,home,chests:[]});hexes.forEach(([c,r])=>S.isleAt[K(c,r)]=id);}
+function recalc(P){ const s=P.ship; s.maxHp=BASE_HP+(P.role==='shipwright'?5:0)+3*P.upg.hull; s.cap=(P.role==='trader'?4:BASE_CAP)+2*P.upg.hold; if(s.hp>s.maxHp) s.hp=s.maxHp; }
+const dmgBonus = P => (P.role==='gunner'?1:0) + P.upg.guns;
+const baseSail = P => BASE_SAIL + (P.role==='navigator'?1:0) + P.upg.sail;
+function addIsland(hexes, home){const id=S.islands.length;S.islands.push({id,hexes,home,chests:[],fresh:0});hexes.forEach(([c,r])=>S.isleAt[K(c,r)]=id);}
 function draw(P){ if(!S.deck.length){ if(!S.discard.length) return; S.deck=shuffle(S.discard); S.discard=[]; } P.hand.push(S.deck.pop()); }
 function shipAt(c,r,exceptPid){ for(const P of S.players){ if(P.id===exceptPid) continue; const s=P.ship; if(!s.sunk && s.c===c && s.r===r) return P; } return null; }
 function isWater(c,r){ return inB(c,r) && S.isleAt[K(c,r)]==null; }
@@ -167,25 +203,37 @@ function placeAtHome(P){
   const cx=(COLS-1)/2, cy=(ROWS-1)/2; let best=null;
   for(let d=0;d<6;d++){const n=nb(hc,hr,d); if(!free(n.c,n.r,P.id)) continue;
     const sc=Math.hypot(n.c-cx,n.r-cy); if(!best||sc<best.sc) best={c:n.c,r:n.r,f:d,sc};}
-  if(!best){ // fallback: nearest free water anywhere
-    let bd=1e9; for(const [c,r] of ALLHEX){ if(!free(c,r,P.id)) continue; const dd=hdist(c,r,hc,hr); if(dd<bd){bd=dd;best={c,r,f:0};} } }
-  const s=P.ship; s.c=best.c; s.r=best.r; s.f=best.f; // stern touches home, bow points away
+  if(!best){ let bd=1e9; for(const [c,r] of ALLHEX){ if(!free(c,r,P.id)) continue; const dd=hdist(c,r,hc,hr); if(dd<bd){bd=dd;best={c,r,f:0};} } }
+  const s=P.ship; s.c=best.c; s.r=best.r; s.f=best.f;
 }
 const curP = () => S.players[S.cur];
 const canPlayCard = P => P.played !== S.round;
-function goldOf(P){ return P.homeChests.reduce((a,b)=>a+b,0); }
-function chestsLeft(){ let n=0; S.islands.forEach(i=>{ if(i.home<0) n+=i.chests.length; }); S.players.forEach(P=>n+=P.ship.cargo.length); return n; }
+function goldOf(P){ return P.gold; }
+function dockedHome(P){ const s=P.ship; return !s.sunk && islandNeighbors(s.c,s.r).includes(P.home); }
+function chestsOnIslands(){ let n=0; S.islands.forEach(i=>{ if(i.home<0) n+=i.chests.length; }); return n; }
+function chestsLeft(){ let n=chestsOnIslands(); S.players.forEach(P=>n+=P.ship.cargo.length); return n; }
+function nextWashRound(){ if(!S.supply.length) return 0; let r=STORY.washFirst; while(r<=S.round) r+=STORY.washEvery; return r; }
 
 // ---------- Turn flow ----------
+function washUp(){
+  const n=Math.min(STORY.washCount, S.supply.length); if(!n) return;
+  const tis=S.islands.filter(i=>i.home<0); const names=[];
+  for(let k=0;k<n;k++){ // favour islands with fewer chests
+    const w=tis.map(i=>1/(1+i.chests.length)); let t=rnd()*w.reduce((a,b)=>a+b,0), j=0; while(t>w[j]){ t-=w[j]; j++; }
+    const isl=tis[Math.min(j,tis.length-1)]; isl.chests.push(S.supply.pop()); isl.fresh=S.round; names.push(isl.id); S.stats.washed++;
+    const [c,r]=isl.hexes[0]; fx(c,r,'🌊 +1 chest','#9fe3ff'); }
+  log('🌊 '+n+' chest'+(n>1?'s wash':' washes')+' up on the islands. Supply left: '+S.supply.length+'.');
+}
 function startTurn(){
-  const P=curP(), s=P.ship; S.tick++; S.actions=2; S.loaded=false; S.armed={navigator:false,gunner:false,shot:null}; S.skip=false; S.phase='turn';
+  const P=curP(), s=P.ship; S.tick++; S.actions=2; S.loaded=false; S.fired=false; S.bought=false; S.armed={navigator:false,gunner:false,shot:null}; S.skip=false; S.phase='turn';
   if(s.sunk){
-    if(S.tick - s.sunkTick >= NP){ s.sunk=false; s.hp=s.maxHp; s.cargo=[]; placeAtHome(P); S.stats.respawns++; P._fx=1;
+    if(S.tick - s.sunkTick >= NP){ s.sunk=false; recalc(P); s.hp=s.maxHp; s.cargo=[]; s.hitTicks=[]; s.shotsTaken=0; placeAtHome(P); S.stats.respawns++;
       log(P.name+'\'s ship is back at home with full HP (no actions this turn).', P.id); }
     else log(P.name+' is still swimming home (back next turn).', P.id);
     S.actions=0; S.skip=true; return;
   }
   s.chainNow=s.chained; s.chained=false; s.grapeNow=s.graped; s.graped=false;
+  if(P.role==='shipwright' && s.hp<s.maxHp && islandNeighbors(s.c,s.r).length){ const h=Math.min(2,s.maxHp-s.hp); s.hp+=h; if(s.hp>=s.maxHp){ s.hitTicks=[]; s.shotsTaken=0; } log(P.name+' repairs by the island: +'+h+' HP ('+s.hp+'/'+s.maxHp+').', P.id); fx(s.c,s.r,'+'+h+' HP','#5fd35f'); }
   if(s.chainNow) log(P.name+' is chain-shot: sails 1 hex less this turn.', P.id);
   if(s.grapeNow) log(P.name+'\'s crew is grape-shot: no firing this turn.', P.id);
 }
@@ -199,25 +247,26 @@ function hasEvent(P){ return P.hand.some(id=>CARDS[id].type==='event'); }
 function processEvents(){
   while(S.evQueue.length && !S.over){
     const pid=S.evQueue[0], P=S.players[pid];
-    if(!canPlayCard(P) || !hasEvent(P)){ S.evQueue.shift(); continue; }
-    if(!P.ai && !S.noPrompt){ S.phase='event'; S.evFor=pid; return; }
+    if(!canPlayCard(P) || !hasEvent(P) || !P.hand.some((id,i)=>CARDS[id].type==='event'&&cardPlayable(pid,i))){ S.evQueue.shift(); continue; }
+    if(!P.ai && !S.noPrompt && !S.holdEvents){ S.phase='event'; S.evFor=pid; return; }
     S.evQueue.shift(); if(P.ai) aiEvent(P);
   }
   S.evFor=-1; advance();
 }
-function resolveEventPrompt(idx, opt){ // human answer; idx<0 = skip
+function resolveEventPrompt(idx, opt){
   if(S.phase!=='event') return false;
   const pid=S.evFor; S.evQueue.shift();
-  if(idx>=0) playCard(pid, idx, opt);
-  S.phase='events'; processEvents(); return true;
+  S.phase='events'; if(idx>=0) playCard(pid, idx, opt);
+  processEvents(); return true;
 }
 function advance(){
   if(checkOver()) return;
-  S.cur=(S.cur+1)%NP; if(S.cur===0) S.round++;
-  if(S.round>60){ finish('Round 60 safety stop'); return; }
+  S.cur=(S.cur+1)%NP;
+  if(S.cur===0){ S.round++; if(S.supply.length && S.round>=STORY.washFirst && (S.round-STORY.washFirst)%STORY.washEvery===0) washUp(); }
+  if(S.round>ROUND_CAP){ finish('Round '+ROUND_CAP+' safety stop'); return; }
   startTurn();
 }
-function checkOver(){ if(S.over) return true; if(chestsLeft()===0){ finish('Every chest is home or sunk'); return true;} return false; }
+function checkOver(){ if(S.over) return true; if(S.supply.length===0 && chestsLeft()===0){ finish('The supply is empty and every chest is home or sunk'); return true;} return false; }
 function finish(why){
   S.over=true; S.phase='over'; const best=Math.max(...S.players.map(goldOf));
   S.winners=S.players.filter(P=>goldOf(P)===best).map(P=>P.id);
@@ -225,28 +274,33 @@ function finish(why){
 }
 
 // ---------- Rules / legality ----------
-function moveRange(P){ let m=2; if(S.armed.navigator && S.cur===P.id) m++; if(P.ship.chainNow) m--; return Math.max(0,m); }
+function moveRange(P){ let m=baseSail(P); if(S.armed.navigator && S.cur===P.id) m++; if(P.ship.chainNow) m--; return Math.max(0,m); }
 function legalMoves(pid){
   const P=S.players[pid], s=P.ship; if(S.over||S.phase!=='turn'||S.cur!==pid||s.sunk||S.actions<=0) return [];
-  const R=moveRange(P), best=new Map(); let front=[{c:s.c,r:s.r,f:s.f,path:[]}]; const seen=new Set([s.c+','+s.r+','+s.f]);
+  return reach(P, moveRange(P));
+}
+function reach(P, R){
+  const s=P.ship, best=new Map(); let front=[{c:s.c,r:s.r,f:s.f,path:[]}]; const seen=new Set([s.c+','+s.r+','+s.f]);
   for(let st=0; st<R; st++){ const nf=[];
     for(const x of front) for(const dd of [0,-1,1]){ const d=(x.f+dd+6)%6, n=nb(x.c,x.r,d);
-      if(!free(n.c,n.r,pid)) continue; const k=n.c+','+n.r+','+d; if(seen.has(k)) continue; seen.add(k);
+      if(!free(n.c,n.r,P.id)) continue; const k=n.c+','+n.r+','+d; if(seen.has(k)) continue; seen.add(k);
       const y={c:n.c,r:n.r,f:d,path:x.path.concat([[n.c,n.r]])}; nf.push(y); const hk=K(n.c,n.r); if(!best.has(hk)&&!(n.c===s.c&&n.r===s.r)) best.set(hk,y); }
     front=nf; }
   return [...best.values()];
 }
 function fireRange(P){ return 2 + (S.armed.gunner && S.cur===P.id ? 1 : 0); }
 function fireTargets(pid, extra){
-  const P=S.players[pid], s=P.ship; if(S.over||S.phase!=='turn'||S.cur!==pid||s.sunk||S.actions<=0||s.grapeNow) return [];
+  const P=S.players[pid], s=P.ship; if(S.over||S.phase!=='turn'||S.cur!==pid||s.sunk||S.actions<=0||s.grapeNow||S.fired) return [];
   const R=fireRange(P)+(extra||0);
   return S.players.filter(T=>T.id!==pid && !T.ship.sunk && hdist(s.c,s.r,T.ship.c,T.ship.r)<=R).map(T=>T.id);
 }
 function loadIsland(pid){ const P=S.players[pid], s=P.ship; if(s.sunk||s.cargo.length>=s.cap) return -1;
-  const ids=islandNeighbors(s.c,s.r).filter(id=>S.islands[id].home<0 && S.islands[id].chests.length); return ids.length?ids[0]:-1; }
+  const ids=islandNeighbors(s.c,s.r).filter(id=>S.islands[id].home<0 && S.islands[id].chests.length); ids.sort((a,b)=>S.islands[b].chests.length-S.islands[a].chests.length); return ids.length?ids[0]:-1; }
 function canUnloadHere(pid){ const P=S.players[pid], s=P.ship; return !s.sunk && s.cargo.length>0 && islandNeighbors(s.c,s.r).includes(P.home); }
 function canLoadAction(pid, free_){ if(S.over||S.phase!=='turn'||S.cur!==pid) return false; if(!free_ && (S.actions<=0||S.loaded)) return false; return loadIsland(pid)>=0; }
 function canUnloadAction(pid, free_){ if(S.over||S.phase!=='turn'||S.cur!==pid) return false; if(!free_ && (S.actions<=0||S.loaded)) return false; return canUnloadHere(pid); }
+function canBuy(pid, u){ const P=S.players[pid]; if(S.over||S.phase!=='turn'||S.cur!==pid||S.skip||S.bought||!dockedHome(P)) return false;
+  if(u==null) return UPG_IDS.some(x=>canBuy(pid,x)); return UPGRADES[u] && P.upg[u]===0 && P.gold>=UPGRADES[u].cost; }
 
 // ---------- Actions ----------
 function spend(){ S.actions--; }
@@ -269,18 +323,24 @@ function doLoad(pid, free_){
 }
 function doUnload(pid, free_){
   if(!canUnloadAction(pid, free_)) return false; const P=S.players[pid], s=P.ship; const vals=s.cargo.splice(0);
-  P.homeChests.push(...vals); if(!free_){ spend(); S.loaded=true; }
-  const sum=vals.reduce((a,b)=>a+b,0);
-  log(P.name+' unloads '+vals.length+' chest'+(vals.length>1?'s':'')+' at home: '+vals.join(' + ')+' = '+sum+' gold'+(free_?' (free, Deck Master)':'')+'. Home total '+goldOf(P)+'.', pid);
+  const bonus=(P.role==='trader'&&!TUNE.noBonus)?(TUNE.traderMode==='chest'?vals.length:TUNE.traderMode==='trip'?1:TUNE.traderMode==='trip2'?(vals.length>=2?1:0):Math.ceil(vals.length/2)):0; const sum=vals.reduce((a,b)=>a+b,0)+bonus;
+  P.gold+=sum; P.earned+=sum; P.chestsHome+=vals.length; if(!free_){ spend(); S.loaded=true; }
+  log(P.name+' unloads '+vals.length+' chest'+(vals.length>1?'s':'')+' at home: '+vals.join(' + ')+(bonus?' + Trader '+bonus:'')+' = '+sum+' gold'+(free_?' (free, Deck Master)':'')+'. Banked '+P.gold+'.', pid);
   fx(s.c,s.r,'+'+sum+' gold','#ffd24a'); checkOver(); return true;
+}
+function doBuy(pid, u){
+  if(!canBuy(pid,u)) return false; const P=S.players[pid], U=UPGRADES[u];
+  P.gold-=U.cost; P.spent+=U.cost; P.upg[u]=1; S.bought=true; S.stats.upgrades[P.role+':'+u]=(S.stats.upgrades[P.role+':'+u]||0)+1; S.stats.spent[pid]+=U.cost;
+  recalc(P); if(u==='hull') P.ship.hp=Math.min(P.ship.maxHp,P.ship.hp+3);
+  log(P.name+' buys '+U.name+' ('+U.text+') for '+U.cost+' gold. Banked '+P.gold+'.', pid); fx(P.ship.c,P.ship.r,'⚒ '+U.name,'#ffd24a'); return true;
 }
 function doFire(pid, tid){
   if(!fireTargets(pid).includes(tid)) return false;
   const P=S.players[pid], s=P.ship, T=S.players[tid], t=T.ship; const dice=[]; for(let i=0;i<s.cannons;i++) dice.push(d6());
-  let dmg=dice.reduce((a,b)=>a+b,0); let shot=S.armed.shot; let extra='';
-  if(shot==='bomb'){ dmg+=2; extra=' + Bomb-shot 2'; }
-  spend(); S.armed.gunner=false; S.armed.shot=null; S.stats.shots++;
-  t.hp=Math.max(0,t.hp-dmg);
+  const b=dmgBonus(P); let dmg=dice.reduce((a,c)=>a+c+b,0); let shot=S.armed.shot; let extra=b?' (+'+b+' each)':'';
+  if(shot==='bomb'){ dmg+=2; extra+=' + Bomb-shot 2'; }
+  spend(); S.fired=true; S.armed.gunner=false; S.armed.shot=null; S.stats.shots++;
+  t.hp=Math.max(0,t.hp-dmg); if(!t.hitTicks.includes(S.tick)) t.hitTicks.push(S.tick); t.shotsTaken++;
   s.shotAnim={from:[s.c,s.r],to:[t.c,t.r],t0:performance.now()};
   log(P.name+' fires at '+T.name+': 🎲'+dice.join(' 🎲')+extra+' = '+dmg+' damage. '+T.name+' HP '+t.hp+'/'+t.maxHp+'.', pid);
   fx(t.c,t.r,'-'+dmg,'#ff6b6b');
@@ -298,22 +358,23 @@ function hookMove(P, tc, tr){
 }
 function sink(T, by){
   const t=T.ship; const cargo=shuffle(t.cargo.splice(0)); let got=0, lostN=0;
-  if(by){ const half=Math.floor(cargo.length/2); const room=by.ship.cap-by.ship.cargo.length; got=Math.min(half,room); for(let i=0;i<got;i++) by.ship.cargo.push(cargo.pop()); }
+  if(by){ const half=by.role==='gunner'?cargo.length:Math.floor(cargo.length/2); const room=by.ship.cap-by.ship.cargo.length; got=Math.min(half,room); for(let i=0;i<got;i++) by.ship.cargo.push(cargo.pop()); }
   lostN=cargo.length; S.lost.push(...cargo);
-  t.sunk=true; t.hp=0; t.sunkTick=S.tick; t.chained=t.graped=t.chainNow=t.grapeNow=false; S.stats.sinks++;
+  S.stats.sinkTurns.push(t.hitTicks.length); S.stats.sinkShots.push(t.shotsTaken);
+  t.sunk=true; t.hp=0; t.sunkTick=S.tick; t.chained=t.graped=t.chainNow=t.grapeNow=false; t.hitTicks=[]; t.shotsTaken=0; S.stats.sinks++;
   fx(t.c,t.r,'SUNK','#ffffff');
   log('💥 '+T.name+'\'s ship sinks!'+(got?' '+by.name+' grabs '+got+' chest'+(got>1?'s':'')+'.':'')+(lostN?' '+lostN+' chest'+(lostN>1?'s':'')+' lost to the deep.':'')+' Back at home after one full round.', T.id);
 }
 function playCard(pid, idx, opt){
   const P=S.players[pid]; const id=P.hand[idx]; if(!id || S.over) return false; const C=CARDS[id]; opt=opt||{};
-  if(!cardPlayable(pid, idx, opt)) return false;
+  if(!cardPlayable(pid, idx, id==='mixup'?opt:undefined)) return false;
   P.hand.splice(idx,1); S.discard.push(id); P.played=S.round; S.stats.cards[id]=(S.stats.cards[id]||0)+1;
   log(P.name+' plays '+C.name+'.', pid);
   const s=P.ship;
   if(C.type==='shot'){ S.armed.shot=id; draw(P); return true; }
   if(id==='navigator'){ S.armed.navigator=true; draw(P); return true; }
   if(id==='gunner'){ S.armed.gunner=true; draw(P); return true; }
-  if(id==='shipwright'){ const h=Math.min(3,s.maxHp-s.hp); s.hp+=h; log(P.name+' patches the hull: +'+h+' HP ('+s.hp+'/'+s.maxHp+').', pid); fx(s.c,s.r,'+'+h+' HP','#5fd35f'); draw(P); return true; }
+  if(id==='shipwright'){ const h=Math.min(3,s.maxHp-s.hp); s.hp+=h; if(s.hp>=s.maxHp){ s.hitTicks=[]; s.shotsTaken=0; } log(P.name+' patches the hull: +'+h+' HP ('+s.hp+'/'+s.maxHp+').', pid); fx(s.c,s.r,'+'+h+' HP','#5fd35f'); draw(P); return true; }
   if(id==='deckmaster'){ draw(P); if(canUnloadAction(pid,true)) doUnload(pid,true); else doLoad(pid,true); return true; }
   if(id==='typhoon'){ draw(P); typhoon(); return true; }
   if(id==='monkeys'){ draw(P); monkeys(); return true; }
@@ -321,15 +382,16 @@ function playCard(pid, idx, opt){
     log('Loading Mixup: 1 chest moves from '+A.name+' to '+B.name+'.', pid); fx(B.ship.c,B.ship.r,'+1 chest','#ffd24a'); return true; }
   return false;
 }
-function mixupOK(from,to){ const A=S.players[from], B=S.players[to]; return A&&B&&from!==to&&!A.ship.sunk&&!B.ship.sunk&&A.ship.cargo.length>0&&B.ship.cargo.length<B.ship.cap; }
+function mixupOK(from,to){ const A=S.players[from], B=S.players[to];
+  return !!(A&&B&&from!==to&&!A.ship.sunk&&!B.ship.sunk&&(A.role!=='trader'||TUNE.noImmune)&&!dockedHome(A)&&A.ship.cargo.length>0&&B.ship.cargo.length<B.ship.cap); }
 function cardPlayable(pid, idx, opt){
   const P=S.players[pid]; const id=P.hand[idx]; if(!id||S.over||!canPlayCard(P)) return false; const C=CARDS[id]; const s=P.ship;
   if(C.type==='event'){ if(S.phase!=='event'&&S.phase!=='events') return false; if(S.cur===pid) return false;
     if(id==='mixup'){ if(!opt) return anyMixup(); return mixupOK(opt.from,opt.to); } return true; }
-  if(S.phase!=='turn'||S.cur!==pid||s.sunk) return false;
+  if(S.phase!=='turn'||S.cur!==pid||s.sunk||S.skip) return false;
   if(C.type==='shot') return !S.armed.shot && fireTargets(pid).length>0;
   if(id==='navigator') return !S.armed.navigator && S.actions>0 && legalMoves(pid).length>0;
-  if(id==='gunner') return !S.armed.gunner && S.actions>0 && !s.grapeNow && fireTargets(pid,1).length>0;
+  if(id==='gunner') return !S.armed.gunner && S.actions>0 && !s.grapeNow && !S.fired && fireTargets(pid,1).length>0;
   if(id==='shipwright') return s.hp<s.maxHp;
   if(id==='deckmaster') return canLoadAction(pid,true)||canUnloadAction(pid,true);
   return false;
@@ -337,7 +399,8 @@ function cardPlayable(pid, idx, opt){
 function anyMixup(){ for(let a=0;a<NP;a++) for(let b=0;b<NP;b++) if(mixupOK(a,b)) return true; return false; }
 function typhoon(){
   const roll=d6(), d=roll-1; S.stats.typhoons++; log('🌀 Typhoon! Rolled '+roll+': every ship is blown '+DIRN[d]+'.');
-  const moving=S.players.filter(P=>!P.ship.sunk);
+  const moving=S.players.filter(P=>!P.ship.sunk && P.role!=='navigator');
+  S.players.forEach(P=>{ if(!P.ship.sunk && P.role==='navigator') log(P.name+' (Navigator) holds steady.', P.id); });
   moving.forEach(P=>{ P._st=false; P._from=[P.ship.c,P.ship.r]; });
   for(let step=0;step<2;step++) for(const P of moving){ if(P._st||P.ship.sunk) continue; const s=P.ship, n=nb(s.c,s.r,d);
     if(!inB(n.c,n.r)){ P._st=true; continue; }
@@ -347,75 +410,114 @@ function typhoon(){
   moving.forEach(P=>{ if(!P.ship.sunk && (P._from[0]!==P.ship.c||P._from[1]!==P.ship.r)) P.ship.anim={path:[P._from,[P.ship.c,P.ship.r]],t0:performance.now()}; });
   checkOver();
 }
-function monkeys(){
-  const picks=[]; for(let i=0;i<NP;i++){ const L=S.players[(i+1)%NP]; picks.push(L.hand.length? Math.floor(rnd()*L.hand.length) : -1); }
-  const taken=picks.map((k,i)=>k<0?null:S.players[(i+1)%NP].hand[k]);
-  // remove (highest index first per hand)
-  for(let i=0;i<NP;i++){ if(picks[i]<0) continue; const L=S.players[(i+1)%NP]; L.hand[picks[i]]=null; }
-  S.players.forEach(P=>P.hand=P.hand.filter(x=>x)); taken.forEach((id,i)=>{ if(id) S.players[i].hand.push(id); });
-  log('🐒 Thieving Monkeys! Everyone grabs a random card from the Fisher to their left.');
+function monkeys(){ // the Trader sits out; everyone else takes a blind card from the next Fisher to their left in the circle
+  const ring=S.players.filter(P=>P.role!=='trader'||TUNE.noImmune); const n=ring.length; if(n<2) return;
+  const picks=ring.map((P,i)=>{ const L=ring[(i+1)%n]; return L.hand.length?Math.floor(rnd()*L.hand.length):-1; });
+  const taken=picks.map((k,i)=>k<0?null:ring[(i+1)%n].hand[k]);
+  ring.forEach((P,i)=>{ if(picks[i]>=0) ring[(i+1)%n].hand[picks[i]]=null; });
+  ring.forEach(P=>P.hand=P.hand.filter(x=>x)); taken.forEach((id,i)=>{ if(id) ring[i].hand.push(id); });
+  log('🐒 Thieving Monkeys! Everyone grabs a random card from the Fisher to their left'+(ring.length<NP?' (the Trader keeps theirs and sits out).':'.'));
 }
 let FX=[];
 function fx(c,r,text,color){ FX.push({c,r,text,color,t0:performance.now()}); if(FX.length>30) FX.shift(); }
 
 // ---------- AI ----------
-function distField(sources){ // BFS over water from source hexes
+function distField(sources){
   const D={}; let q=[]; for(const [c,r] of sources){ const k=K(c,r); if(D[k]==null&&isWater(c,r)){D[k]=0;q.push([c,r]);} }
   while(q.length){ const nq=[]; for(const [c,r] of q){ const dv=D[K(c,r)]; for(let d=0;d<6;d++){ const n=nb(c,r,d); if(!isWater(n.c,n.r)) continue; const k=K(n.c,n.r); if(D[k]==null){D[k]=dv+1;nq.push([n.c,n.r]);} } } q=nq; }
   return D;
 }
 function waterAround(isl){ const out=[]; isl.hexes.forEach(([c,r])=>{ for(let d=0;d<6;d++){ const n=nb(c,r,d); if(isWater(n.c,n.r)) out.push([n.c,n.r]); } }); return out; }
+const TUNE = {homeAt:null, noShop:false, noBonus:false, noImmune:false, shopLeft:16, maxUpg:2, traderMode:'trip', gunAny:true, gunKeen:8}; // sim-only knobs
+function islandField(isl){ return distField(waterAround(isl)); } // islands never move; fields ignore ships
+function expDmg(P){ return 7 + 2*dmgBonus(P); }
+function strongerThan(E,P){ const e=E.ship, s=P.ship; return e.hp*expDmg(E) >= s.hp*expDmg(P)*0.8 || expDmg(E) >= s.hp; }
+function danger(P, c, r){ // how exposed is hex (c,r) to enemy fire next round
+  let d=0; const s=P.ship;
+  for(const E of S.players){ if(E.id===P.id||E.ship.sunk) continue; const e=E.ship; if(!strongerThan(E,P)) continue;
+    const dist=hdist(c,r,e.c,e.r), reachR=baseSail(E)+2;
+    if(dist<=2) d+=3; else if(dist<=reachR) d+=1.5; }
+  return d;
+}
 function aiGoal(P){
   const s=P.ship; const home=S.islands[P.home];
-  const chestIsles=S.islands.filter(i=>i.home<0&&i.chests.length);
-  const homeF=distField(waterAround(home)); const dHome=homeF[K(s.c,s.r)]??99;
-  let chestF=null, dChest=99;
-  if(chestIsles.length && s.cargo.length<s.cap){ chestF=distField([].concat(...chestIsles.map(waterAround))); dChest=chestF[K(s.c,s.r)]??99; }
-  if(s.cargo.length>0 && (s.cargo.length>=2 || !chestF || dChest>dHome || s.cargo.length>=s.cap)) return homeF;
-  if(chestF) return chestF;
-  // chase the nearest enemy carrying chests
+  const homeF=islandField(home); const dHome=homeF[K(s.c,s.r)]??99;
+  const room=s.cap-s.cargo.length;
+  let bestI=null, bestSc=1e9, bestF=null, bestD=99;
+  if(room>0) for(const isl of S.islands){ if(isl.home>=0||!isl.chests.length) continue; const F=islandField(isl); const d=F[K(s.c,s.r)]??99;
+    let sc=d - 1.2*Math.min(isl.chests.length,room) - (isl.fresh>=S.round-1?1:0);
+    for(const E of S.players){ if(E.id===P.id||E.ship.sunk) continue; const ed=F[K(E.ship.c,E.ship.r)]??99; if(ed+1<d && E.ship.cargo.length<E.ship.cap) sc+=1.5; }
+    if(sc<bestSc){ bestSc=sc; bestI=isl; bestF=F; bestD=d; } }
+  const carry=s.cargo.length; const lowHp=s.hp<=s.maxHp*0.4;
+  const homeAt = TUNE.homeAt || (P.role==='trader'?2:(P.role==='gunner'?2:3));
+  if(carry>0 && (room===0 || carry>=homeAt || !bestF || bestD>dHome || lowHp || (S.supply.length===0&&chestsOnIslands()===0))) return {F:homeF, why:'home'};
+  if(lowHp && P.role==='shipwright' && bestF) return {F:bestF, why:'chest'}; // repairs next to any island anyway
+  // the Gunner hunts carriers when one is close
   const carriers=S.players.filter(T=>T.id!==P.id&&!T.ship.sunk&&T.ship.cargo.length);
-  if(carriers.length){ const src=[]; carriers.forEach(T=>ALLHEX.forEach(([c,r])=>{ if(hdist(c,r,T.ship.c,T.ship.r)<=2) src.push([c,r]); })); return distField(src); }
-  if(s.cargo.length) return homeF;
+  const hunt = T => { const src=[]; ALLHEX.forEach(([c,r])=>{ if(hdist(c,r,T.ship.c,T.ship.r)<=2) src.push([c,r]); }); return distField(src); };
+  if(carry===0 && carriers.length){ const near=carriers.map(T=>({T,d:hdist(s.c,s.r,T.ship.c,T.ship.r)})).sort((a,b)=>a.d-b.d)[0];
+    const keen = P.role==='gunner' ? TUNE.gunKeen : 3;
+    if(near.d<=keen && !strongerThan(near.T,P) || (P.role==='gunner'&&near.d<=4)) return {F:hunt(near.T), why:'hunt'}; }
+  if(bestF) return {F:bestF, why:'chest'};
+  if(carriers.length){ const T=carriers.sort((a,b)=>hdist(s.c,s.r,a.ship.c,a.ship.r)-hdist(s.c,s.r,b.ship.c,b.ship.r))[0]; return {F:hunt(T), why:'hunt'}; }
+  if(carry) return {F:homeF, why:'home'};
+  if(S.supply.length) { // wait near the middle for the next wash-up, or go home to shop
+    if(P.gold>=3 && UPG_IDS.some(u=>!P.upg[u]&&P.gold>=UPGRADES[u].cost)) return {F:homeF, why:'shop'};
+    return {F:distField([[7,4]]), why:'wait'}; }
   return null;
 }
 function findCard(P,id){ return P.hand.indexOf(id); }
 function aiTryCard(P,id){ const i=findCard(P,id); if(i>=0 && cardPlayable(P.id,i)) return playCard(P.id,i); return false; }
-function aiAct(pid){ // one decision; false = end turn
+const SHOP_PRIORITY = { gunner:['hull','hold','guns','sail'], trader:['hold','hull','sail','guns'], navigator:['hold','guns','hull','sail'], shipwright:['guns','hold','sail','hull'] };
+function aiShop(P){
+  if(TUNE.noShop || !canBuy(P.id)) return false;
+  const left=S.supply.length+chestsLeft(); if(left<TUNE.shopLeft) return false; // late upgrades never pay back
+  const owned=UPG_IDS.filter(u=>P.upg[u]).length; if(owned>=TUNE.maxUpg) return false;
+  const lead=Math.max(...S.players.filter(T=>T.id!==P.id).map(goldOf));
+  for(const u of SHOP_PRIORITY[P.role]){ if(canBuy(P.id,u) && P.gold-UPGRADES[u].cost >= Math.min(lead-12, 4)) return doBuy(P.id,u); }
+  return false;
+}
+function aiAct(pid){
   const P=S.players[pid], s=P.ship; if(S.over||S.phase!=='turn'||S.cur!==pid||S.skip) return false;
-  if(s.hp<=5 && aiTryCard(P,'shipwright')) return true;
+  if(s.hp<=s.maxHp*0.5 && aiTryCard(P,'shipwright')) return true;
   if(canUnloadHere(pid)){ if(S.actions>0&&!S.loaded) return doUnload(pid); if(aiTryCard(P,'deckmaster')) return true; }
+  if(aiShop(P)) return true;
   if(loadIsland(pid)>=0){ if(S.actions>0&&!S.loaded) return doLoad(pid); if(aiTryCard(P,'deckmaster')) return true; }
   if(S.actions<=0) return false;
-  // attack?
-  const want=T=>T.ship.cargo.length>0 || T.ship.hp<=(s.cargo.length?4:7);
+  // fire (once per turn)
+  const carry=s.cargo.length, myD=expDmg(P);
+  const want=T=>T.ship.cargo.length>0 || T.ship.hp<=myD+1 || (P.role==='gunner'&&TUNE.gunAny&&!carry) || (!carry && goldOf(T)>=goldOf(P)+6);
   let tg=fireTargets(pid).map(i=>S.players[i]).filter(want);
-  if(!tg.length && !S.armed.gunner && canPlayCard(P) && findCard(P,'gunner')>=0){ const far=fireTargets(pid,1).map(i=>S.players[i]).filter(want); if(far.length){ aiTryCard(P,'gunner'); return true; } }
+  if(!tg.length && !S.fired && !S.armed.gunner && canPlayCard(P) && findCard(P,'gunner')>=0){ const far=fireTargets(pid,1).map(i=>S.players[i]).filter(want); if(far.length && aiTryCard(P,'gunner')) return true; }
   if(tg.length){ tg.sort((a,b)=>(b.ship.cargo.length-a.ship.cargo.length)||(a.ship.hp-b.ship.hp)); const T=tg[0];
-    if(!S.armed.shot && canPlayCard(P)){ for(const id of ['bomb','grape','chain','hook']) if(aiTryCard(P,id)) return true; }
+    if(!S.armed.shot && canPlayCard(P)){ const order = T.ship.hp<=myD+3 ? ['bomb','grape','chain','hook'] : (carry? ['grape','chain','bomb','hook'] : ['bomb','chain','grape','hook']);
+      for(const id of order) if(aiTryCard(P,id)) return true; }
     return doFire(pid,T.id); }
   // move
-  const F=aiGoal(P); if(!F) return false;
-  const here=F[K(s.c,s.r)]??99; if(here===0) return false;
-  if(!S.armed.navigator && here>2 && canPlayCard(P) && findCard(P,'navigator')>=0 && aiTryCard(P,'navigator')) return true;
-  const ms=legalMoves(pid); let best=null;
-  for(const m of ms){ const v=F[K(m.c,m.r)]??99; const ahead=nb(m.c,m.r,m.f); const av=F[K(ahead.c,ahead.r)]??99; const sc=v*10+(av<v?0:3)+(m.path.length===1?0.5:0); if(!best||sc<best.sc) best={m,sc,v}; }
-  if(best && best.v<here) return doMove(pid,best.m.c,best.m.r);
-  // come about toward the goal
+  const G=aiGoal(P); if(!G) return false; const F=G.F;
+  const here=F[K(s.c,s.r)]??99; const careful = carry>0 || s.hp<=s.maxHp*0.4;
+  if(here===0 && G.why!=='wait') return false;
+  if(!S.armed.navigator && here>baseSail(P) && canPlayCard(P) && findCard(P,'navigator')>=0 && aiTryCard(P,'navigator')) return true;
+  const W = careful ? 2.2*(1+carry*0.3) : 0.4;
+  const stay = here*10 + danger(P,s.c,s.r)*W*3;
+  let best=null;
+  for(const m of legalMoves(pid)){ const v=F[K(m.c,m.r)]??99; const ahead=nb(m.c,m.r,m.f); const av=F[K(ahead.c,ahead.r)]??99;
+    const sc=v*10+(av<v?0:3)+danger(P,m.c,m.r)*W*3+(m.path.length===1?0.5:0); if(!best||sc<best.sc) best={m,sc,v}; }
+  if(best && (best.sc<stay || (best.v<here && !careful))) return doMove(pid,best.m.c,best.m.r);
   let bd=-1,bv=99; for(let d=0;d<6;d++){ const n=nb(s.c,s.r,d); const v=F[K(n.c,n.r)]; if(v!=null && v<bv && free(n.c,n.r,pid)){bv=v;bd=d;} }
-  if(bd>=0 && bd!==s.f) return doTurn(pid,bd);
+  if(bd>=0 && bd!==s.f && bv<here) return doTurn(pid,bd);
   return false;
 }
 function aiEvent(P){
-  if(!canPlayCard(P)||P.ship.sunk&&false) return;
+  if(!canPlayCard(P)) return;
   const mi=findCard(P,'mixup');
   if(mi>=0 && !P.ship.sunk && P.ship.cargo.length<P.ship.cap){ const rich=S.players.filter(T=>T.id!==P.id&&mixupOK(T.id,P.id)).sort((a,b)=>b.ship.cargo.length-a.ship.cargo.length)[0];
     if(rich){ playCard(P.id,mi,{from:rich.id,to:P.id}); return; } }
-  const ty=findCard(P,'typhoon'); if(ty>=0 && rnd()<0.2){ playCard(P.id,ty); return; }
-  const mo=findCard(P,'monkeys'); if(mo>=0 && rnd()<0.2){ playCard(P.id,mo); return; }
+  const ty=findCard(P,'typhoon'); if(ty>=0 && rnd()<0.15){ playCard(P.id,ty); return; }
+  const mo=findCard(P,'monkeys'); if(mo>=0 && rnd()<0.15){ playCard(P.id,mo); return; }
 }
-function aiFullTurn(){ let g=0; while(!S.over && S.phase==='turn' && g++<12){ if(!aiAct(S.cur)) break; } if(!S.over && S.phase==='turn') endTurn(); }
-function runToEnd(maxTicks){ maxTicks=maxTicks||2000; let g=0; while(!S.over && g++<maxTicks){ if(S.phase==='event'){ resolveEventPrompt(-1); continue; } aiFullTurn(); } return {over:S.over, winners:S.winners, round:S.round, tick:S.tick}; }
+function aiFullTurn(){ let g=0; while(!S.over && S.phase==='turn' && g++<14){ if(!aiAct(S.cur)) break; } if(!S.over && S.phase==='turn') endTurn(); }
+function runToEnd(maxTicks){ maxTicks=maxTicks||4000; let g=0; while(!S.over && g++<maxTicks){ if(S.phase==='event'){ resolveEventPrompt(-1); continue; } aiFullTurn(); } return {over:S.over, winners:S.winners, round:S.round, tick:S.tick}; }
 
 // ---------- Rendering ----------
 const cv=document.getElementById('map'), ctx=cv.getContext('2d');
@@ -457,7 +559,8 @@ function render(){
     if(isl.home>=0){ const P=S.players[isl.home]; ctx.strokeStyle='#3b2a14'; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(p.x-R*0.1,p.y+R*0.45); ctx.lineTo(p.x-R*0.1,p.y-R*0.55); ctx.stroke();
       ctx.fillStyle=P.color; ctx.beginPath(); ctx.moveTo(p.x-R*0.1,p.y-R*0.55); ctx.lineTo(p.x+R*0.5,p.y-R*0.38); ctx.lineTo(p.x-R*0.1,p.y-R*0.2); ctx.fill();
       txt(goldOf(P)+'g', p.x, p.y+R*0.33, '#fff', Math.max(10,R*0.42), true); }
-    else if(isl.chests.length){ const cx=p.x, cy=p.y; ctx.fillStyle='#7a4a1c'; rr(cx-R*0.34,cy-R*0.22,R*0.68,R*0.46,3); ctx.fill(); ctx.fillStyle='#d9a441'; ctx.fillRect(cx-R*0.34,cy-R*0.04,R*0.68,R*0.07);
+    if(isl.home<0 && isl.chests.length && isl.fresh && isl.fresh>=S.round-1){ isl.hexes.forEach(([c,r])=>{ const q=hp(c,r); hexPath(q.x,q.y,R*0.98); ctx.strokeStyle='rgba(159,227,255,'+(0.55+0.35*Math.sin(now/250))+')'; ctx.lineWidth=3; ctx.stroke(); }); }
+    if(isl.home>=0){} else if(isl.chests.length){ const cx=p.x, cy=p.y; ctx.fillStyle='#7a4a1c'; rr(cx-R*0.34,cy-R*0.22,R*0.68,R*0.46,3); ctx.fill(); ctx.fillStyle='#d9a441'; ctx.fillRect(cx-R*0.34,cy-R*0.04,R*0.68,R*0.07);
       txt('×'+isl.chests.length, cx, cy+R*0.62, '#fff', Math.max(10,R*0.42), true); }
   }
   // ships
@@ -466,7 +569,7 @@ function render(){
     if(humanTurn && UI.mode!=='turn' && fireTargets(me.id).includes(P.id)){ ctx.beginPath(); ctx.arc(p.x,p.y,R*0.78,0,7); ctx.strokeStyle='#ff5b5b'; ctx.lineWidth=3; ctx.setLineDash([5,3]); ctx.stroke(); ctx.setLineDash([]); }
     drawShip(p.x,p.y,s.f,R,P.color);
     // hp bar
-    const bw=R*1.1; ctx.fillStyle='#331'; ctx.fillRect(p.x-bw/2,p.y+R*0.55,bw,4); ctx.fillStyle=s.hp>5?'#5fd35f':s.hp>2?'#f2c14e':'#ff5b5b'; ctx.fillRect(p.x-bw/2,p.y+R*0.55,bw*s.hp/s.maxHp,4);
+    const bw=R*1.1; ctx.fillStyle='#331'; ctx.fillRect(p.x-bw/2,p.y+R*0.55,bw,4); ctx.fillStyle=s.hp>s.maxHp*0.5?'#5fd35f':s.hp>s.maxHp*0.25?'#f2c14e':'#ff5b5b'; ctx.fillRect(p.x-bw/2,p.y+R*0.55,bw*s.hp/s.maxHp,4);
     if(s.cargo.length){ ctx.beginPath(); ctx.arc(p.x+R*0.5,p.y-R*0.5,R*0.26,0,7); ctx.fillStyle='#ffd24a'; ctx.fill(); txt(String(s.cargo.length),p.x+R*0.5,p.y-R*0.5,'#3b2a00',Math.max(9,R*0.34),true); }
     txt(LETTERS[P.id], p.x-R*0.55, p.y-R*0.5, P.color, Math.max(9,R*0.36), true);
     if(s.shotAnim){ const t=(now-s.shotAnim.t0)/350; if(t>1) s.shotAnim=null; else { const a=hp(...s.shotAnim.from), b=hp(...s.shotAnim.to); ctx.beginPath(); ctx.arc(a.x+(b.x-a.x)*t, a.y+(b.y-a.y)*t - Math.sin(t*Math.PI)*R*0.6, 3.5,0,7); ctx.fillStyle='#222'; ctx.fill(); } }
@@ -493,22 +596,25 @@ function esc(s){ return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;',
 function refresh(){
   if(!S) return; const me=S.players[0];
   $('score').innerHTML=S.players.map(P=>{ const s=P.ship; const st=s.sunk?'sunk':('⛵'+s.cargo.length+'/'+s.cap);
-    return '<div class="sc'+(P.id===S.cur&&!S.over?' cur':'')+'"><span class="dot" style="background:'+P.color+'"></span><span class="nm">'+esc(P.name)+(P.ai?'':' (you)')+'</span><span>🏠'+goldOf(P)+'g</span><span>'+st+'</span><span class="hp"><i style="width:'+(100*s.hp/s.maxHp)+'%"></i></span></div>'; }).join('');
+    return '<div class="sc'+(P.id===S.cur&&!S.over?' cur':'')+'"><span class="dot" style="background:'+P.color+'"></span><span title="'+ROLES[P.role].name+'">'+ROLES[P.role].icon+'</span><span class="nm">'+esc(P.name)+(P.ai?'':' (you)')+'</span><span>🏠'+goldOf(P)+'g'+(UPG_IDS.some(u=>P.upg[u])?'⚒'+UPG_IDS.filter(u=>P.upg[u]).length:'')+'</span><span>'+st+'</span><span class="hp"><i style="width:'+(100*s.hp/s.maxHp)+'%"></i></span></div>'; }).join('');
+  const nw=nextWashRound(); $('supply').textContent='Rd '+S.round+' · 🗺 '+chestsOnIslands()+' out · 🌊 '+S.supply.length+' to wash up'+(nw?' (rd '+nw+')':'');
+  $('supply').title='Round '+S.round+': '+chestsOnIslands()+' chests on islands, '+S.supply.length+' still to wash up'+(nw?', next on round '+nw:'');
   const cur=curP(); let st='';
   if(S.over) st='Game over — '+S.winners.map(i=>esc(S.players[i].name)).join(' & ')+' '+(S.winners.length>1?'tie':'wins')+'.';
   else if(S.phase==='event') st='Event window: '+esc(cur.name)+' ended their turn.';
   else if(!cur.ai && S.skip) st=me.ship.sunk?'Your ship is sunk. Waiting to respawn…':'Your ship is back at home. No actions this respawn turn.';
-  else if(!cur.ai){ const bits=[]; bits.push('<b>Your turn</b> · '+S.actions+' action'+(S.actions===1?'':'s')+' left · round '+S.round);
+  else if(!cur.ai){ const bits=[]; bits.push('<b>Your turn</b> · '+S.actions+' action'+(S.actions===1?'':'s')+' left'+(S.fired?' · fired':''));
     if(UI.mode==='turn') bits.push('Tap a yellow hex to face that way.');
-    else if(S.actions>0) bits.push('Blue = sail · red ring = fire'+(S.armed.shot?' ('+CARDS[S.armed.shot].name+' loaded)':'')+(S.armed.gunner?' · Gunner +1 range':'')+(S.armed.navigator?' · Navigator +1 hex':''));
+    else if(S.actions>0) bits.push('Blue = sail'+(S.fired?'':' · red ring = fire')+(S.armed.shot?' ('+CARDS[S.armed.shot].name+' loaded)':'')+(S.armed.gunner?' · Gunner +1 range':'')+(S.armed.navigator?' · Navigator +1 hex':''));
     else bits.push('No actions left. Tap End.');
     if(me.ship.chainNow) bits.push('Chain-shot: 1 hex sails.'); if(me.ship.grapeNow) bits.push('Grape-shot: no firing.');
     st=bits.join('<br>'); }
-  else st=esc(cur.name)+' is taking their turn… (round '+S.round+')';
+  else st=esc(cur.name)+' ('+ROLES[cur.role].name+') is taking their turn…';
   $('status').innerHTML=st;
   const my=!cur.ai && S.phase==='turn' && !S.over && !S.skip;
   $('bLoad').disabled=!(my && canLoadAction(0)); $('bUnload').disabled=!(my && canUnloadAction(0));
   $('bTurn').disabled=!(my && S.actions>0); $('bTurn').classList.toggle('hot',UI.mode==='turn');
+  $('bShop').disabled=!(my && dockedHome(me)); $('bShop').classList.toggle('hot', my && canBuy(0));
   $('bEnd').disabled=!my; $('bEnd').classList.toggle('hot', my && S.actions===0);
   $('hand').innerHTML=me.hand.map((id,i)=>{ const C=CARDS[id]; const ok=!me.ai&&cardPlayable(0,i); return '<div class="card '+C.type+(ok?' ok':'')+(canPlayCard(me)?'':' dim')+'" data-i="'+i+'"><b>'+C.name+'</b><span>'+TYPE_LABEL[C.type]+(ok?' · tap':'')+'</span></div>'; }).join('')
     + (canPlayCard(me)?'':'');
@@ -524,16 +630,20 @@ function modalOpen(){ return $('modal').classList.contains('on'); }
 function showModal(html){ $('mbox').innerHTML=html; $('modal').classList.add('on'); }
 function closeModal(){ $('modal').classList.remove('on'); }
 function helpHTML(){ return '<h1>How to play</h1>'+
- '<p><b>Goal (Gold Grab):</b> most gold on your home island when the last chest is home or sunk.</p>'+
+ '<p><b>Goal (Gold Grab):</b> most banked gold at your home island when the supply is empty and the last chest is home or sunk.</p>'+
  '<h2>Your turn: 2 actions</h2><ul>'+
- '<li><b>Sail</b>: tap a blue hex. Up to 2 hexes, never backward; each step goes straight or one side left/right.</li>'+
- '<li><b>Fire</b>: tap an enemy with a red ring (within 2 hexes). Both cannons roll a die; the target loses the faces.</li>'+
- '<li><b>Load</b>: next to a treasure island, take its face-down chests (5 max). <b>Unload</b>: next to your home island; chests are opened and counted. Only one load/unload per turn.</li>'+
- '<li><b>Turn</b>: face any direction (costs an action). Then <b>End</b>.</li></ul>'+
- '<h2>Cards (hand of 3, one per round)</h2><ul><li><b>Shots</b> right before firing · <b>Crew</b> on your turn · <b>Events</b> at the end of someone else\'s turn (the game will ask you).</li></ul>'+
- '<h2>Sinking</h2><ul><li>At 0 HP your ship sinks. The shooter grabs half your chests (rounded down) if it has room; the rest sink. After one full round you\'re back at home with full HP (no actions that turn).</li></ul>'+
- '<p>Laptop: click, or keys <b>L</b> load · <b>U</b> unload · <b>T</b> turn · <b>E</b> end · <b>1–3</b> cards · <b>H</b> help · <b>F</b> AI speed.</p>'+
- '<p style="font-size:12px;color:#555">Rules come from Paul\'s Aargh! Gold Grab (2015–2017), Cards.doc (2017) and the 2018 Dev Blog. v0.1 fills: hex grid, 4 players, chest values 1–5, load takes all that fit, Turn action, shots always land, Typhoon north fixed. See CORE_LOOP.md.</p>'+
+ '<li><b>Sail</b>: tap a blue hex. Up to 2 hexes (Navigator 3), never backward; each step goes straight or one side left/right.</li>'+
+ '<li><b>Fire</b>: once per turn, tap an enemy with a red ring (within 2 hexes). Both cannons roll a die; the target loses the faces (+ bonuses).</li>'+
+ '<li><b>Load</b>: next to a treasure island, take its face-down chests. <b>Unload</b>: next to your home island; chests are opened and banked. Only one load/unload per turn.</li>'+
+ '<li><b>Turn</b>: face any direction (costs an action). <b>Shop</b>: docked at home, spend banked gold on one upgrade per turn (free). Then <b>End</b>.</li></ul>'+
+ '<h2>Fishers</h2><p style="font-size:12px;color:#555">The 2018 Dev Blog gave each Fisher a motive: family, treasure or power (and the tagline Adventure Awaits!). These four roles are placeholders until the real roster turns up.</p><ul>'+
+ ROLE_IDS.map(r=>'<li>'+ROLES[r].icon+' <b>'+ROLES[r].name+'</b> ('+ROLES[r].motive+'): '+ROLES[r].text+'</li>').join('')+'</ul>'+
+ '<h2>Upgrades (spent gold leaves your score)</h2><ul>'+UPG_IDS.map(u=>'<li><b>'+UPGRADES[u].name+'</b> — '+UPGRADES[u].text+' — '+UPGRADES[u].cost+' gold</li>').join('')+'</ul>'+
+ '<h2>Treasure</h2><ul><li>'+STORY.chests.length+' chests to start; '+STORY.supply.length+' more wash up, '+STORY.washCount+' every '+STORY.washEvery+' rounds from round '+STORY.washFirst+' (glowing islands). The panel shows the supply.</li></ul>'+
+ '<h2>Cards (hand of 3, one per round)</h2><ul><li><b>Shots</b> right before firing · <b>Crew</b> on your turn · <b>Events</b> at the end of someone else\'s turn (the game will ask you).</li><li>Loading Mixup moves 1 chest, never from a ship docked at its own home or from the Trader.</li></ul>'+
+ '<h2>Sinking</h2><ul><li>Ships have '+BASE_HP+' HP (Shipwright '+(BASE_HP+5)+'). At 0 HP your ship sinks: the shooter grabs half your chests (rounded down) if it has room; the rest sink. After one full round you\'re back at home with full HP (no actions that turn). Upgrades stay.</li></ul>'+
+ '<p>Laptop: click, or keys <b>L</b> load · <b>U</b> unload · <b>T</b> turn · <b>S</b> shop · <b>E</b> end · <b>1–3</b> cards · <b>H</b> help · <b>F</b> AI speed.</p>'+
+ '<p style="font-size:12px;color:#555">Rules come from Paul\'s Aargh! Gold Grab (2015–2017), Cards.doc (2017) and the 2018 Dev Blog. The v0.1 and v0.2 fills (hex grid, roles, upgrades, wash-ups, firing once a turn, '+BASE_HP+' HP…) are listed in CORE_LOOP.md.</p>'+
  '<div class="row"><button onclick="closeModal();refresh()">Got it</button></div>'; }
 function miniMap(){ const c=document.createElement('canvas'); const w=150,h=96; c.width=w*2; c.height=h*2; c.style.width=w+'px'; c.style.height=h+'px'; const x=c.getContext('2d'); x.scale(2,2);
   x.fillStyle='#1c6a96'; x.fillRect(0,0,w,h); const R=w/(1.5*(COLS-1)+2); const pp=(cc,r)=>({x:R+R*1.5*cc, y:R*0.9+R*Math.sqrt(3)*(r+0.5*(cc&1))});
@@ -541,15 +651,28 @@ function miniMap(){ const c=document.createElement('canvas'); const w=150,h=96; 
   STORY.homes.forEach(([cc,r],i)=>{ const p=pp(cc,r); x.beginPath(); x.arc(p.x,p.y,R*0.95,0,7); x.fillStyle=COLORS[i]; x.fill(); x.fillStyle='#fff'; x.font='bold 8px sans-serif'; x.textAlign='center'; x.textBaseline='middle'; x.fillText(LETTERS[i],p.x,p.y); });
   return c; }
 function titleScreen(){
-  const saved=localStorage.getItem('ffa.name')||'Fisher A';
+  const saved=localStorage.getItem('ffa.name'); let role=localStorage.getItem('ffa.role'); if(!ROLES[role]) role='trader';
+  const isDefault = n => !n || n==='Fisher A' || ROLE_IDS.some(r=>n===ROLES[r].name+' Fisher');
   showModal('<h1>Fisher Family Adventures</h1><p style="margin:0 0 6px;color:#555">v'+VERSION+' prototype · the game is the referee</p>'+
-   '<div class="story"><div id="mm"></div><div><b>Story card: Family Gold Grab</b><p>Every Fisher for themself · 4 Fishers · 1 ship each.</p><p>12 face-down treasure chests sit on 8 islands. Haul them home. Most gold at your home island when the last chest is home or sunk wins.</p></div></div>'+
-   '<div class="locked">🔒 Coming later: a haunted-islands story with Great-great-uncle Ebenezer Fisher (from the 2018 Dev Blog). Not in v0.1.</div>'+
-   '<p style="margin-top:8px">Your Fisher\'s name: <input id="nm" maxlength="18" value="'+esc(saved)+'"> <span class="tag">placeholder names; the roster isn\'t written yet</span></p>'+
+   '<div class="story"><div id="mm"></div><div><b>Story card: Family Gold Grab</b><p>Every Fisher for themself · 4 Fishers · 1 ship each.</p><p>'+STORY.chests.length+' face-down chests to start and '+STORY.supply.length+' more washing up. Haul them home, then spend gold on upgrades or keep it. Most banked gold at the end wins.</p></div></div>'+
+   '<p class="short"><b>Story card: Family Gold Grab</b> · every Fisher for themself · most banked gold at the end wins.</p>'+
+   '<p style="margin:8px 0 0"><b>Pick your Fisher</b> <span class="tag">placeholder roles; the AI takes the other three</span></p><div class="roles">'+
+   ROLE_IDS.map(r=>'<div class="role'+(r===role?' on':'')+'" data-r="'+r+'">'+ROLES[r].icon+' <b>'+ROLES[r].name+'</b> <span class="tag">'+ROLES[r].motive+'</span><br>'+ROLES[r].text+'</div>').join('')+'</div>'+
+   '<p style="margin-top:8px">Name: <input id="nm" maxlength="18" value="'+esc(isDefault(saved)?ROLES[role].name+' Fisher':saved)+'"></p>'+
+   '<div class="locked">🔒 Coming later: a haunted-islands story with Great-great-uncle Ebenezer Fisher (from the 2018 Dev Blog).</div>'+
    '<div class="row"><button id="go">Set sail</button><button class="alt" id="hh">How to play</button></div>');
   $('mm').appendChild(miniMap());
-  $('go').onclick=()=>{ const n=($('nm').value||'Fisher A').trim().slice(0,18)||'Fisher A'; localStorage.setItem('ffa.name',n); closeModal(); start({names:[n]}); };
+  $('mbox').querySelectorAll('[data-r]').forEach(el=>el.onclick=()=>{ $('mbox').querySelectorAll('.role').forEach(x=>x.classList.remove('on')); el.classList.add('on'); role=el.dataset.r; const nm=$('nm'); if(isDefault(nm.value.trim())) nm.value=ROLES[role].name+' Fisher'; });
+  $('go').onclick=()=>{ const n=($('nm').value||'').trim().slice(0,18)||(ROLES[role].name+' Fisher'); localStorage.setItem('ffa.name',n); localStorage.setItem('ffa.role',role); closeModal(); start({names:[n], role}); };
   $('hh').onclick=()=>{ showModal(helpHTML()); const b=$('mbox').querySelector('button'); b.onclick=()=>titleScreen(); };
+}
+function shopModal(){
+  const me=S.players[0]; if(!dockedHome(me)) return;
+  showModal('<h2>Shipyard — '+esc(me.name)+'</h2><p>Banked: <b>'+goldOf(me)+' gold</b>. Gold you spend leaves your score. One upgrade per turn, no action used.</p>'+
+   UPG_IDS.map(u=>{ const U=UPGRADES[u]; const own=me.upg[u]; return '<div class="upg"><div><b>'+U.name+'</b> — '+U.text+'</div>'+(own?'<span class="tag">owned</span>':'<button data-u="'+u+'"'+(canBuy(0,u)?'':' disabled')+'>'+U.cost+' gold</button>')+'</div>'; }).join('')+
+   (S.bought?'<p style="color:#a33">Already bought an upgrade this turn.</p>':'')+
+   '<div class="row"><button class="alt" onclick="closeModal()">Close</button></div>');
+  $('mbox').querySelectorAll('[data-u]').forEach(b=>b.onclick=()=>{ doBuy(0,b.dataset.u); closeModal(); after(); });
 }
 function cardModal(i){
   const me=S.players[0], id=me.hand[i]; if(!id) return; const C=CARDS[id]; const ok=cardPlayable(0,i);
@@ -569,7 +692,7 @@ function eventPrompt(){
 }
 function mixupPick(i, from){
   const ships=S.players.filter(P=>!P.ship.sunk);
-  if(from==null){ showModal('<h2>Loading Mixup</h2><p>Take 1 chest from which ship?</p><div class="row">'+ships.filter(P=>P.ship.cargo.length).map(P=>'<button data-f="'+P.id+'" style="background:'+P.color+'">'+esc(P.name)+' ('+P.ship.cargo.length+')</button>').join('')+'<button class="alt" id="bk">Back</button></div>');
+  if(from==null){ showModal('<h2>Loading Mixup</h2><p>Take 1 chest from which ship?</p><div class="row">'+ships.filter(P=>S.players.some(B=>mixupOK(P.id,B.id))).map(P=>'<button data-f="'+P.id+'" style="background:'+P.color+'">'+esc(P.name)+' ('+P.ship.cargo.length+')</button>').join('')+'<button class="alt" id="bk">Back</button></div>');
     $('mbox').querySelectorAll('[data-f]').forEach(b=>b.onclick=()=>mixupPick(i,+b.dataset.f)); $('bk').onclick=()=>eventPrompt(); return; }
   showModal('<h2>Loading Mixup</h2><p>Give it to which ship?</p><div class="row">'+ships.filter(P=>mixupOK(from,P.id)).map(P=>'<button data-t="'+P.id+'" style="background:'+P.color+'">'+esc(P.name)+'</button>').join('')+'<button class="alt" id="bk">Back</button></div>');
   $('mbox').querySelectorAll('[data-t]').forEach(b=>b.onclick=()=>{ closeModal(); resolveEventPrompt(i,{from,to:+b.dataset.t}); after(); }); $('bk').onclick=()=>mixupPick(i);
@@ -577,10 +700,10 @@ function mixupPick(i, from){
 function gameOverModal(){
   const rank=S.players.slice().sort((a,b)=>goldOf(b)-goldOf(a));
   showModal('<h1>'+(S.winners.includes(0)?(S.winners.length>1?'Shared victory!':'You win!'):esc(S.players[S.winners[0]].name)+' wins')+'</h1>'+
-   rank.map((P,k)=>'<p><b style="color:'+P.color+'">'+(k+1)+'. '+esc(P.name)+'</b> — '+goldOf(P)+' gold ('+P.homeChests.length+' chests)</p>').join('')+
+   rank.map((P,k)=>'<p><b style="color:'+P.color+'">'+(k+1)+'. '+esc(P.name)+'</b> — '+goldOf(P)+' gold ('+ROLES[P.role].name+', '+P.chestsHome+' chests'+(P.spent?', spent '+P.spent+' on upgrades':'')+')</p>').join('')+
    '<p style="color:#555">'+S.lost.length+' chest'+(S.lost.length===1?'':'s')+' went down with sunk ships. Rounds played: '+S.round+'.</p>'+
    '<div class="row"><button id="again">Play again</button><button class="alt" onclick="closeModal()">Look at the board</button></div>');
-  $('again').onclick=()=>{ closeModal(); start({names:[S.players[0].name], allAI:S.players[0].ai}); };
+  $('again').onclick=()=>{ closeModal(); start({names:[S.players[0].name], role:S.players[0].role, allAI:S.players[0].ai}); };
 }
 
 // ---------- Driver ----------
@@ -606,14 +729,15 @@ $('bTurn').onclick=()=>{ UI.mode=UI.mode==='turn'?'normal':'turn'; refresh(); };
 $('bEnd').onclick=()=>{ UI.mode='normal'; if(S.cur===0&&!S.players[0].ai) endTurn(); after(); };
 $('bHelp').onclick=()=>showModal(helpHTML());
 $('bSpeed').onclick=()=>{ UI.speed=(UI.speed+1)%3; after(); };
-$('bNew').onclick=()=>{ if(confirm('Start a new game?')) start({names:[S.players[0].name]}); };
+$('bNew').onclick=()=>{ if(confirm('Start a new game?')){ closeModal(); titleScreen(); } };
+$('bShop').onclick=()=>shopModal();
 $('hand').addEventListener('click', e=>{ const el=e.target.closest('.card'); if(el) cardModal(+el.dataset.i); });
 addEventListener('keydown', e=>{
   if(e.target.tagName==='INPUT') return; const k=e.key.toLowerCase();
   if(k==='escape'){ if(modalOpen()&&S&&S.phase!=='event') closeModal(); UI.mode='normal'; refresh(); return; }
   if(modalOpen()) return;
   if(k==='h'||k==='?') showModal(helpHTML()); else if(k==='l') $('bLoad').click(); else if(k==='u') $('bUnload').click();
-  else if(k==='t') $('bTurn').click(); else if(k==='e'||k==='enter') $('bEnd').click(); else if(k==='f') $('bSpeed').click();
+  else if(k==='t') $('bTurn').click(); else if(k==='e'||k==='enter') $('bEnd').click(); else if(k==='f') $('bSpeed').click(); else if(k==='s') $('bShop').click();
   else if(['1','2','3'].includes(k)) cardModal(+k-1);
 });
 let RZ=0; const onRZ=()=>{ resize(); clearTimeout(RZ); RZ=setTimeout(resize,250); };
@@ -626,7 +750,7 @@ resize(); requestAnimationFrame(loop);
 window.__ffa = {
   version:VERSION, get S(){return S;},
   state:()=>({round:S.round,tick:S.tick,cur:S.cur,phase:S.phase,over:S.over,winners:S.winners,actions:S.actions,chestsLeft:chestsLeft(),lost:S.lost.length,
-    players:S.players.map(P=>({name:P.name,ai:P.ai,hp:P.ship.hp,sunk:P.ship.sunk,c:P.ship.c,r:P.ship.r,f:P.ship.f,cargo:P.ship.cargo.length,gold:goldOf(P),hand:P.hand.slice()})),stats:S.stats}),
+    supply:S.supply.length,players:S.players.map(P=>({role:P.role,spent:P.spent,upg:{...P.upg},maxHp:P.ship.maxHp,cap:P.ship.cap,name:P.name,ai:P.ai,hp:P.ship.hp,sunk:P.ship.sunk,c:P.ship.c,r:P.ship.r,f:P.ship.f,cargo:P.ship.cargo.length,gold:goldOf(P),hand:P.hand.slice()})),stats:S.stats}),
   newGame:(o)=>{ clearTimeout(TIMER); UI.shownOver=true; const r=newGame(o); refresh(); return !!r; },
   start, runToEnd:(n)=>{ clearTimeout(TIMER); const r=runToEnd(n); refresh(); return r; },
   aiFullTurn:()=>{ aiFullTurn(); refresh(); }, legalMoves, fireTargets, doMove, doFire, doLoad, doUnload, doTurn, playCard, cardPlayable, endTurn:()=>{const r=endTurn(); refresh(); return r;},
@@ -636,7 +760,8 @@ window.__ffa = {
   setCargo:(pid,vals)=>{ S.players[pid].ship.cargo=vals.slice(); refresh(); },
   hexToPx:(c,r)=>{ const p=hp(c,r), b=cv.getBoundingClientRect(); return {x:b.left+p.x, y:b.top+p.y}; },
   geo:()=>({...GEO, cw:cv.clientWidth, ch:cv.clientHeight, top:cv.getBoundingClientRect().top, bottomRowY:Math.max(...ALLHEX.filter(h=>h[1]===ROWS-1).map(h=>hp(h[0],h[1]).y))+GEO.R*Math.sqrt(3)/2}), resize,
-  refresh, closeModal, typhoon, monkeys
+  refresh, closeModal, typhoon, monkeys, doBuy, canBuy, mixupOK, washUp, aiGoal:(pid)=>{const g=aiGoal(S.players[pid]); return g&&g.why;}, danger:(pid,c,r)=>danger(S.players[pid],c,r),
+  TUNE, UPGRADES, setGold:(pid,g)=>{ S.players[pid].gold=g; refresh(); }
 };
 if(Q.get('auto')==='1'){ start({allAI:true}); UI.speed=2; after(); }
 else if(Q.get('skip')==='1'){ start({}); }
